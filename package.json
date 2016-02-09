@@ -33,6 +33,7 @@
         "dashdash": "1.4.0"
       , "underscore": "1.5.2"
       , "relp": "git://github.com/nbrownus/node-relp"
+      , "statsd-client": "0.2.1"
     }
   , "devDependencies": {
         "istanbul": "0.2.x"

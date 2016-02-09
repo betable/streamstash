@@ -5,6 +5,7 @@ var StreamStash = require('../')
   , path = require('path')
   , fs = require('fs')
   , dashdash = require('dashdash')
+  , sdc = require('statsd-client')
   , plugins = {
         inputs: {}
       , outputs: {}
@@ -131,7 +132,7 @@ files.forEach(function (filePath) {
 })
 
 // Set up a signal handler for SIGINT to gracefully shutdown
-var killTimeout = opts['kill_timeout']
+var killTimeout = opts.kill_timeout
   , killTimer = false
 
 process.on('SIGINT', function () {
@@ -179,7 +180,9 @@ streamStash.once('stopped', function () {
 streamStash.start()
 
 var lastTotal = 0
+  , lastTenSecTotal = 0
   , perSec = 0
+  , perTenSec = 0
   , maxPerSec = 0
 
 process.on('uncaughtException', function (error) {
@@ -187,6 +190,19 @@ process.on('uncaughtException', function (error) {
     logger.error(error.stack || error)
     attempt_shutdown()
 })
+
+var gauge
+if (typeof process.env.STATSD_HOST === 'undefined' ||
+        typeof process.env.STATSD_PORT === 'undefined' ||
+        typeof process.env.STATSD_PREFIX === 'undefined') {
+    gauge = function gauge() {}
+} else {
+    var sdc_client = new sdc({host: process.env.STATSD_HOST, port: parseInt(process.env.STATSD_PORT)})
+
+    gauge = function gauge(metric, value) {
+        sdc_client.gauge(metric, value)
+    }
+}
 
 setInterval(function () {
     perSec = (streamStash.stats.events.total - lastTotal)
@@ -199,12 +215,20 @@ setInterval(function () {
 }, 1000)
 
 setInterval(function () {
+    perTenSec = (streamStash.stats.events.total - lastTenSecTotal)
+
+    gauge(process.env.STATSD_PREFIX + '.processedPerTenSec', perTenSec)
+    gauge(process.env.STATSD_PREFIX + '.processedPerSec', perSec)
+
     logger.info(
-        'Processing: ' + streamStash.stats.events.processing
-            + ', Total: ' + streamStash.stats.events.total
-            + ', Current/s: ' + perSec + '/s'
-            + ', Max/s: ' + maxPerSec + '/s'
+        'Processing: ' + streamStash.stats.events.processing +
+            ', Total: ' + streamStash.stats.events.total +
+            ', Current/s: ' + perSec + '/s' +
+            ', Processed: ' + perTenSec + '/10s' +
+            ', Max/s: ' + maxPerSec + '/s'
     )
+
+    lastTenSecTotal = streamStash.stats.events.total
 }, 10000)
 
 /**
